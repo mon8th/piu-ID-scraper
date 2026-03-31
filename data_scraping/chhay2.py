@@ -7,7 +7,6 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
-import time
 import os 
 import requests
 import re
@@ -164,8 +163,8 @@ def save_batch(results, batch_num):
     print(f"Saved batch {batch_num} with {len(results)} records")
 
 def main():
-    years = ['22'] 
-    student_max = 35  
+    years = ['25'] 
+    student_max = 57  
     
     student_ids = create_student_ids(years, student_max)
     print(f"Generated {len(student_ids)} student IDs.")
