@@ -58,7 +58,7 @@ def setup_driver():
     
     return browser
 
-def scrape_student(student_id, browser=None):
+def scrape_student(student_id, browser=None, img_dir='images'):
     should_close = False
     if browser is None:
         browser = setup_driver()
@@ -107,20 +107,19 @@ def scrape_student(student_id, browser=None):
             if profile_image_url.startswith('/'):
                 profile_image_url = urljoin(url, profile_image_url)
                 
-            os.makedirs('images', exist_ok=True)
-            image_path = os.path.join('images', f"{student_id}.jpg") 
+            os.makedirs(img_dir, exist_ok=True)
+            image_path = os.path.join(img_dir, f"{student_id}.jpg")
             if not os.path.exists(image_path):
                 response = requests.get(profile_image_url)
                 if response.status_code == 200:
                     with open(image_path, 'wb') as file:
                         file.write(response.content)
-                    student_data['profile_picture_path'] = image_path 
+                    student_data['profile_picture_path'] = image_path
                 else:
                     print(f"Failed to download image for student ID: {student_id}")
         else:
             print(f"No profile image found for student ID: {student_id}")
         
-        # Simplified output to reduce terminal clutter
         print(f"✓ {student_id}: {student_data.get('Name', 'Not found')}")
         return student_data
             
@@ -133,7 +132,6 @@ def save_csv(results, filename='students.csv'):
         print("No data to save.")
         return
     
-    # Fixed: handle fieldnames properly
     all_fields = set()
     for result in results:
         if result:
@@ -149,35 +147,48 @@ def save_csv(results, filename='students.csv'):
                 writer.writerow(result)
     print(f"Data saved to {filename}")
             
-def save_batch(results, batch_num):
+def save_batch(results, batch_num, output_dir='.'):
     if not results:
         return
     
-    csv_filename = f'students_batch_{batch_num}.csv'
+    csv_filename = os.path.join(output_dir, f'students_batch_{batch_num}.csv')
     save_csv(results, filename=csv_filename)
     
-    json_filename = f'student_data_batch_{batch_num}.json'
+    json_filename = os.path.join(output_dir, f'student_data_batch_{batch_num}.json')
     with open(json_filename, 'w', encoding='utf-8') as f:
         json.dump(results, f, ensure_ascii=False, indent=4)
     
     print(f"Saved batch {batch_num} with {len(results)} records")
 
+def deduplicate(results):
+    sorted_results = sorted(results, key=lambda x: x.get('student_id', ''))
+    seen = {}
+    for record in sorted_results:
+        if record:
+            real_id = record.get('ID Number', '').strip()
+            if real_id and real_id not in seen:
+                seen[real_id] = record
+    return list(seen.values())
+
 def main():
-    years = ['25'] 
+    years = ['24'] 
     student_max = 57  
     
     student_ids = create_student_ids(years, student_max)
     print(f"Generated {len(student_ids)} student IDs.")
     
-    # Number of parallel workers
     max_workers = 5
-    # Batch size for saving progress
     batch_size = 50
     
     all_results = []
     batch_num = 1
+
+    year_label = "_".join(years)
+    output_dir = f"data_{year_label}"
+    img_dir = os.path.join(output_dir, "images")
+    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(img_dir, exist_ok=True)
     
-    # Create a pool of browser instances to be reused
     browsers = [setup_driver() for _ in range(max_workers)]
     
     try:
@@ -187,7 +198,7 @@ def main():
             
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_id = {
-                    executor.submit(scrape_student, student_id, browsers[idx % len(browsers)]): student_id
+                    executor.submit(scrape_student, student_id, browsers[idx % len(browsers)], img_dir): student_id
                     for idx, student_id in enumerate(batch_ids)
                 }
                 
@@ -201,7 +212,7 @@ def main():
                         print(f"{student_id} generated an exception: {exc}")
                         
             all_results.extend(batch_results)
-            save_batch(batch_results, batch_num)
+            save_batch(batch_results, batch_num, output_dir)
             batch_num += 1
     
     finally:
@@ -210,10 +221,12 @@ def main():
                 browser.quit()
             except:
                 pass
+            
+    all_results = deduplicate(all_results)
     
-    save_csv(all_results, filename='students_complete.csv')
+    save_csv(all_results, filename=os.path.join(output_dir, 'students_complete.csv'))
     
-    with open('student_data_complete.json', 'w', encoding='utf-8') as f:
+    with open(os.path.join(output_dir, 'student_data_complete.json'), 'w', encoding='utf-8') as f:
         json.dump(all_results, f, ensure_ascii=False, indent=4)
     
     print(f"Scraped {len(all_results)} students successfully out of {len(student_ids)} attempts")
